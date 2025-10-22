@@ -177,6 +177,8 @@ class OrderItemCreate(OrderItemBase):
 class OrderItemRead(OrderItemBase):
     id: UUID
     subtotal: Decimal
+    estimated_weight: Optional[Decimal] = None
+    weight_image_url: Optional[str] = ""
     seafood: SeafoodRead
 
     class Config:
@@ -227,6 +229,12 @@ class OrderRead(OrderBase):
     total_amount: Decimal
     paid_amount: Decimal
     created_at: datetime
+    weighed_at: Optional[datetime] = None
+    weighed_by: Optional[str] = None
+    weight_images: List[str] = []
+    shipped_at: Optional[datetime] = None
+    shipped_by: Optional[str] = None
+    shipping_notes: Optional[str] = ""
     items: List[OrderItemRead] = []
 
     class Config:

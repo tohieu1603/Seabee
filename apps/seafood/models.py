@@ -227,6 +227,10 @@ class Order(BaseModel):
 
     STATUS_CHOICES = [
         ('pending', 'Chờ xử lý'),
+        ('processing', 'Đang xử lý'),
+        ('weighed', 'Đã cân'),
+        ('ready', 'Sẵn sàng giao'),
+        ('shipped', 'Đã gửi vận chuyển'),
         ('completed', 'Hoàn thành'),
         ('cancelled', 'Đã hủy'),
     ]
@@ -251,6 +255,33 @@ class Order(BaseModel):
 
     # Trạng thái
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # Workflow - Xử lý đơn hàng
+    weighed_at = models.DateTimeField(null=True, blank=True, help_text="Thời gian cân hàng")
+    weighed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='weighed_orders',
+        help_text="Nhân viên cân hàng"
+    )
+    weight_images = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Danh sách URL ảnh cân hàng"
+    )
+
+    shipped_at = models.DateTimeField(null=True, blank=True, help_text="Thời gian gửi vận chuyển")
+    shipped_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='shipped_orders',
+        help_text="Nhân viên gửi hàng"
+    )
+    shipping_notes = models.TextField(blank=True, help_text="Ghi chú vận chuyển")
 
     # Ghi chú
     notes = models.TextField(blank=True)
@@ -278,7 +309,16 @@ class OrderItem(BaseModel):
         help_text="Lô hàng được bán"
     )
 
-    # Cân nặng thực tế
+    # Cân nặng ban đầu (ước tính)
+    estimated_weight = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Cân nặng ước tính ban đầu (kg)"
+    )
+
+    # Cân nặng thực tế (sau khi cân)
     weight = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -292,6 +332,9 @@ class OrderItem(BaseModel):
         help_text="Giá/kg (VNĐ)"
     )
     subtotal = models.DecimalField(max_digits=12, decimal_places=0)
+
+    # Ảnh cân cho từng sản phẩm
+    weight_image_url = models.URLField(max_length=500, blank=True, help_text="Ảnh cân của sản phẩm này")
 
     # Ghi chú
     notes = models.TextField(blank=True)
