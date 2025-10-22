@@ -144,9 +144,11 @@ class Command(BaseCommand):
                 'permissions': [
                     'view_dashboard',
                     'view_products',
-                    'view_orders', 'create_order', 'update_order', 'export_order_pdf',
-                    'weigh_order', 'ship_order', 'adjust_order_items',
-                    'use_pos', 'create_pos_order',
+                    'view_orders', 'update_order', 'export_order_pdf',
+                    # Workflow permissions - chỉ xử lý đơn hàng đã tạo
+                    'weigh_order',           # Cân hàng và upload ảnh
+                    'ship_order',            # Đánh dấu đã gửi vận chuyển
+                    'adjust_order_items',    # Thay đổi giá và trọng lượng
                     'view_categories',
                     'view_inventory'
                 ]

@@ -372,8 +372,8 @@ class Command(BaseCommand):
                 sell_price = product.current_price
 
                 # Tính số lượng
-                total_weight = Decimal(str(random.uniform(10, 50))).quantize(Decimal('0.01'))
-                remaining_weight = Decimal(str(random.uniform(5, total_weight))).quantize(Decimal('0.01'))
+                total_weight = Decimal(str(random.uniform(10.0, 50.0))).quantize(Decimal('0.01'))
+                remaining_weight = Decimal(str(random.uniform(5.0, float(total_weight)))).quantize(Decimal('0.01'))
 
                 batch = ImportBatch.objects.create(
                     seafood=product,
