@@ -2,6 +2,7 @@
 API endpoints cho hệ thống bán hải sản
 """
 from ninja import Router
+from pydantic import BaseModel
 from typing import List
 from django.shortcuts import get_object_or_404
 from django.db.models import Sum, F, Q
@@ -470,8 +471,14 @@ def update_order_item(
     }
 
 
+class MarkWeighedSchema(BaseModel):
+    weight_images: List[str] = []
+
+class MarkShippedSchema(BaseModel):
+    shipping_notes: str = ""
+
 @router.post("/orders/{order_id}/mark-weighed")
-def mark_order_weighed(request, order_id: UUID, weight_images: List[str] = None):
+def mark_order_weighed(request, order_id: UUID, payload: MarkWeighedSchema = None):
     """Đánh dấu đơn hàng đã cân xong"""
     order = get_object_or_404(Order, id=order_id)
 
@@ -483,8 +490,8 @@ def mark_order_weighed(request, order_id: UUID, weight_images: List[str] = None)
     User = get_user_model()
     order.weighed_by = User.objects.filter(is_superuser=True).first()
 
-    if weight_images:
-        order.weight_images = weight_images
+    if payload and payload.weight_images:
+        order.weight_images = payload.weight_images
 
     order.save()
 
@@ -495,7 +502,7 @@ def mark_order_weighed(request, order_id: UUID, weight_images: List[str] = None)
 
 
 @router.post("/orders/{order_id}/mark-shipped")
-def mark_order_shipped(request, order_id: UUID, shipping_notes: str = None):
+def mark_order_shipped(request, order_id: UUID, payload: MarkShippedSchema = None):
     """Đánh dấu đơn hàng đã gửi vận chuyển"""
     order = get_object_or_404(Order, id=order_id)
 
@@ -507,8 +514,8 @@ def mark_order_shipped(request, order_id: UUID, shipping_notes: str = None):
     User = get_user_model()
     order.shipped_by = User.objects.filter(is_superuser=True).first()
 
-    if shipping_notes:
-        order.shipping_notes = shipping_notes
+    if payload and payload.shipping_notes:
+        order.shipping_notes = payload.shipping_notes
 
     order.save()
 
