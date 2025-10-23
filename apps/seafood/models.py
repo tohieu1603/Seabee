@@ -49,6 +49,12 @@ class Seafood(BaseModel):
         ('out_of_stock', 'Hết hàng'),
     ]
 
+    UNIT_TYPE_CHOICES = [
+        ('kg', 'Kilogram (kg)'),
+        ('piece', 'Con/Cái'),
+        ('box', 'Thùng/Hộp'),
+    ]
+
     # Thông tin cơ bản
     code = models.CharField(max_length=50, unique=True, db_index=True)
     name = models.CharField(max_length=255, db_index=True)
@@ -57,6 +63,23 @@ class Seafood(BaseModel):
         on_delete=models.SET_NULL,
         null=True,
         related_name='seafoods'
+    )
+
+    # Đơn vị tính
+    unit_type = models.CharField(
+        max_length=20,
+        choices=UNIT_TYPE_CHOICES,
+        default='kg',
+        help_text="Đơn vị tính: kg, con, thùng"
+    )
+
+    # Trọng lượng mỗi đơn vị (cho đơn vị con/thùng)
+    avg_unit_weight = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Trọng lượng trung bình mỗi con/thùng (kg). VD: mỗi con ốc 0.05kg"
     )
 
     # Giá hiện tại (cập nhật theo lô nhập mới nhất)
@@ -307,6 +330,15 @@ class OrderItem(BaseModel):
         null=True,
         blank=True,
         help_text="Lô hàng được bán"
+    )
+
+    # Số lượng (cho sản phẩm tính theo con/thùng)
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Số lượng (con/thùng). VD: 10 con ốc, 2 thùng tôm"
     )
 
     # Cân nặng ban đầu (ước tính)

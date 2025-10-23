@@ -49,6 +49,8 @@ class SeafoodBase(BaseModel):
     code: str
     name: str
     category_id: Optional[UUID] = None
+    unit_type: str = "kg"
+    avg_unit_weight: Optional[Decimal] = Field(default=None, decimal_places=2)
     current_price: Decimal = Field(decimal_places=0)
     stock_quantity: Decimal = Field(default=Decimal('0'), decimal_places=2)
     description: Optional[str] = ""
@@ -65,6 +67,8 @@ class SeafoodCreate(SeafoodBase):
 class SeafoodUpdate(BaseModel):
     name: Optional[str] = None
     category_id: Optional[UUID] = None
+    unit_type: Optional[str] = None
+    avg_unit_weight: Optional[Decimal] = None
     current_price: Optional[Decimal] = None
     stock_quantity: Optional[Decimal] = None
     description: Optional[str] = None
@@ -165,6 +169,7 @@ class ImportBatchRead(ImportBatchBase):
 class OrderItemBase(BaseModel):
     seafood_id: UUID
     import_batch_id: Optional[UUID] = None
+    quantity: Optional[Decimal] = Field(default=None, decimal_places=2, description="Số lượng (con/thùng)")
     weight: Decimal = Field(decimal_places=2)
     unit_price: Decimal = Field(decimal_places=0)
     notes: Optional[str] = ""
@@ -176,6 +181,7 @@ class OrderItemCreate(OrderItemBase):
 
 class OrderItemRead(OrderItemBase):
     id: UUID
+    quantity: Optional[Decimal] = None
     subtotal: Decimal
     estimated_weight: Optional[Decimal] = None
     weight_image_url: Optional[str] = ""
