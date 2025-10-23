@@ -75,6 +75,7 @@ DATABASES = {
         'CONN_MAX_AGE': 600,
         'OPTIONS': {
             'connect_timeout': 10,
+            'options': "-c search_path=seafood"
         }
     }
 }
