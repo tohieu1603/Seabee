@@ -27,6 +27,7 @@ cryptography==43.0.1
 # Utilities
 python-slugify==8.0.4
 pillow==10.4.0
+requests==2.31.0
 
 # Production Server
 gunicorn==23.0.0
