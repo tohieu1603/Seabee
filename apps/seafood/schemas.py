@@ -199,6 +199,7 @@ class OrderBase(BaseModel):
     customer_name: Optional[str] = ""
     customer_phone: str
     customer_address: Optional[str] = ""
+    customer_source: Optional[str] = ""
     payment_method: Optional[str] = ""
     payment_status: str = "pending"
     status: str = "pending"
@@ -210,6 +211,7 @@ class OrderCreate(BaseModel):
     customer_name: Optional[str] = ""
     customer_phone: str
     customer_address: Optional[str] = ""
+    customer_source: Optional[str] = ""
     payment_method: Optional[str] = ""
     payment_status: str = "pending"
     discount_amount: Decimal = Field(default=Decimal('0'), decimal_places=0)
@@ -221,6 +223,7 @@ class OrderUpdate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_address: Optional[str] = None
+    customer_source: Optional[str] = None
     payment_method: Optional[str] = None
     payment_status: Optional[str] = None
     status: Optional[str] = None
@@ -235,16 +238,60 @@ class OrderRead(OrderBase):
     total_amount: Decimal
     paid_amount: Decimal
     created_at: datetime
+
+    # Customer relationship
+    customer_id: Optional[UUID] = None
+
+    # Workflow fields
+    sale_user_id: Optional[UUID] = None
+    confirmed_by_sale_at: Optional[datetime] = None
+    assigned_employee_id: Optional[UUID] = None
+    assigned_at: Optional[datetime] = None
     weighed_at: Optional[datetime] = None
-    weighed_by: Optional[str] = None
+    weighed_by_id: Optional[UUID] = None
     weight_images: List[str] = []
     shipped_at: Optional[datetime] = None
-    shipped_by: Optional[str] = None
+    shipped_by_id: Optional[UUID] = None
     shipping_notes: Optional[str] = ""
     items: List[OrderItemRead] = []
 
     class Config:
         from_attributes = True
+
+
+# ============================================
+# ORDER WORKFLOW SCHEMAS
+# ============================================
+
+class OrderConfirmBySale(BaseModel):
+    """Schema for Sale to confirm customer order"""
+    notes: Optional[str] = None
+
+
+class OrderAssignToEmployee(BaseModel):
+    """Schema for Sale to assign order to employee"""
+    employee_id: UUID
+    notes: Optional[str] = None
+
+
+class OrderStartWeighing(BaseModel):
+    """Schema for Employee to start weighing"""
+    notes: Optional[str] = None
+
+
+class OrderItemWeightUpdate(BaseModel):
+    """Schema for updating order item weight and price"""
+    item_id: UUID
+    actual_weight: Decimal
+    actual_unit_price: Optional[Decimal] = None
+    notes: Optional[str] = None
+
+
+class OrderCompleteWeighing(BaseModel):
+    """Schema for Employee to complete weighing with images"""
+    weight_images: List[str] = []
+    item_updates: List[OrderItemWeightUpdate] = []
+    notes: Optional[str] = None
 
 
 # ============================================

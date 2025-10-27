@@ -48,10 +48,12 @@ def health_check(request):
 from apps.rbac.api import router as rbac_router
 from apps.users.api import router as users_router
 from apps.seafood.api import router as seafood_router
+from apps.payroll.api import router as payroll_router
 
 api.add_router("/rbac/", rbac_router)
 api.add_router("/users/", users_router)
 api.add_router("/seafood/", seafood_router)
+api.add_router("/payroll/", payroll_router)
 
 
 # Global exception handler

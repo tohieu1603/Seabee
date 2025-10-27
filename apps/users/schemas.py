@@ -25,6 +25,7 @@ class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
     employee_id: Optional[str] = Field(None, max_length=50)
     username: Optional[str] = Field(None, max_length=150)
+    user_type: Optional[str] = Field('employee', pattern="^(customer|employee|manager)$")
 
 
 class UserUpdate(BaseModel):
@@ -94,3 +95,52 @@ class UserLoginResponse(BaseModel):
     access_token: str
     token_type: str = "Bearer"
     user: UserRead
+
+
+# ============================================
+# ATTENDANCE SCHEMAS
+# ============================================
+
+class AttendanceBase(BaseModel):
+    """Base attendance schema"""
+    date: datetime
+    attendance_type: str = Field(..., pattern="^(full|half|off)$")
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class AttendanceCreate(AttendanceBase):
+    """Schema for creating attendance"""
+    user_id: UUID
+
+
+class AttendanceUpdate(BaseModel):
+    """Schema for updating attendance"""
+    attendance_type: Optional[str] = Field(None, pattern="^(full|half|off)$")
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class AttendanceRead(AttendanceBase):
+    """Schema for reading attendance"""
+    id: UUID
+    user_id: UUID
+    created_at: datetime
+    updated_at: datetime
+    working_hours: float
+
+    class Config:
+        from_attributes = True
+
+
+class AttendanceCalendar(BaseModel):
+    """Schema for calendar view of attendance"""
+    date: str
+    attendance_type: str
+    check_in_time: Optional[str] = None
+    check_out_time: Optional[str] = None
+    working_hours: float
+    has_orders: bool = False
+    orders_count: int = 0

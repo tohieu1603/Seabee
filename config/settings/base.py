@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.rbac',
     'apps.seafood',
+    'apps.payroll',
 ]
 
 MIDDLEWARE = [
@@ -75,7 +76,7 @@ DATABASES = {
         'CONN_MAX_AGE': 600,
         'OPTIONS': {
             'connect_timeout': 10,
-            'options': "-c search_path=seafood"
+            #'options': "-c search_path=seafood"
         }
     }
 }
@@ -127,6 +128,27 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # Cache configuration (Redis)
 CACHES = {

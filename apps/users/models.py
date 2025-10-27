@@ -193,3 +193,98 @@ class User(AbstractBaseUser, PermissionsMixin):
         ).order_by('-level').first()
 
         return highest.level if highest else 0
+
+
+class Attendance(models.Model):
+    """
+    Attendance/Timesheet Model
+    Tracks employee attendance and working hours
+    """
+    ATTENDANCE_TYPE_CHOICES = [
+        ('full', 'Làm cả ngày'),  # Full day
+        ('half', 'Làm nửa ngày'),  # Half day
+        ('off', 'Nghỉ'),  # Day off
+    ]
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='attendances',
+        help_text="Nhân viên"
+    )
+    date = models.DateField(
+        db_index=True,
+        help_text="Ngày làm việc"
+    )
+    attendance_type = models.CharField(
+        max_length=10,
+        choices=ATTENDANCE_TYPE_CHOICES,
+        default='full',
+        help_text="Loại chấm công"
+    )
+    check_in_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Giờ vào"
+    )
+    check_out_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Giờ ra"
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Ghi chú"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_attendances',
+        help_text="Người tạo"
+    )
+
+    class Meta:
+        db_table = 'attendances'
+        verbose_name = 'Chấm công'
+        verbose_name_plural = 'Chấm công'
+        ordering = ['-date']
+        unique_together = [['user', 'date']]
+        indexes = [
+            models.Index(fields=['user', 'date']),
+            models.Index(fields=['date']),
+            models.Index(fields=['attendance_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.full_name} - {self.date} ({self.get_attendance_type_display()})"
+
+    @property
+    def working_hours(self):
+        """Calculate working hours"""
+        if self.attendance_type == 'off' or not self.check_in_time or not self.check_out_time:
+            return 0
+
+        from datetime import datetime, timedelta
+        check_in = datetime.combine(self.date, self.check_in_time)
+        check_out = datetime.combine(self.date, self.check_out_time)
+
+        if check_out < check_in:
+            check_out += timedelta(days=1)
+
+        delta = check_out - check_in
+        hours = delta.total_seconds() / 3600
+
+        if self.attendance_type == 'half':
+            return min(hours, 4)
+        else:
+            return hours
