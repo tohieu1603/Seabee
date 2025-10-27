@@ -5,12 +5,27 @@ Common settings for all environments
 import os
 from pathlib import Path
 from datetime import timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+def _env_bool(key: str, default: str = "False") -> bool:
+    val = os.getenv(key, str(default))
+    return val.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def env_list(key: str, default: str = "") -> list[str]:
+    raw = os.getenv(key, default)
+    return [x.strip() for x in str(raw).split(",") if x and x.strip()]
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-change-this-in-production-123456789')
+# Build paths
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
 
 # Application definition
 INSTALLED_APPS = [
