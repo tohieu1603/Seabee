@@ -29,6 +29,33 @@ def register(request, payload: UserCreate):
     return user
 
 
+@router.post("/customer/login", response=UserLoginResponse, auth=None)
+def customer_login(request, payload: UserLogin):
+    """Customer login endpoint - ONLY for customers"""
+    user = UserService.authenticate_user(
+        email=payload.email,
+        password=payload.password
+    )
+
+    if not user:
+        from api.exceptions import Unauthorized
+        raise Unauthorized("Invalid credentials")
+
+    # Only allow customers to login here
+    if user.user_type != 'customer':
+        from api.exceptions import PermissionDenied
+        raise PermissionDenied("Endpoint này chỉ dành cho khách hàng. Vui lòng đăng nhập tại trang quản trị")
+
+    # Generate JWT token
+    token = create_access_token(data={"user_id": str(user.id), "email": user.email})
+
+    return {
+        "access_token": token,
+        "token_type": "Bearer",
+        "user": user
+    }
+
+
 @router.post("/customer/register", response=UserLoginResponse, auth=None)
 def customer_register(request, payload: UserCreate):
     """Customer registration endpoint - auto creates customer with default role"""
@@ -68,7 +95,7 @@ def customer_register(request, payload: UserCreate):
 
 @router.post("/login", response=UserLoginResponse, auth=None)
 def login(request, payload: UserLogin):
-    """User login endpoint with JWT"""
+    """User login endpoint with JWT - FOR ALL USERS (customers, staff, admin)"""
     user = UserService.authenticate_user(
         email=payload.email,
         password=payload.password
@@ -78,7 +105,7 @@ def login(request, payload: UserLogin):
         from api.exceptions import Unauthorized
         raise Unauthorized("Invalid credentials")
 
-    # Generate JWT token
+    # Generate JWT token for all user types
     token = create_access_token(data={"user_id": str(user.id), "email": user.email})
 
     return {

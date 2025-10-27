@@ -1645,9 +1645,28 @@ def generate_payment_qr(request, order_code: str):
     """
     Generate QR code for payment using SePay API
     Returns QR code image URL and payment details
+
+    IMPORTANT: QR code can only be generated AFTER order has been weighed
     """
     try:
         order = Order.objects.get(order_code=order_code)
+
+        # Check if order has been weighed - ONLY allow QR generation after weighing
+        if order.status not in ['weighed', 'completed']:
+            return {
+                "success": False,
+                "error": "Đơn hàng chưa được cân. Vui lòng chờ nhân viên cân hàng và gửi ảnh trước khi thanh toán.",
+                "status": order.status,
+                "can_pay": False
+            }
+
+        # Check if already paid
+        if order.payment_status == 'paid':
+            return {
+                "success": False,
+                "error": "Đơn hàng đã được thanh toán",
+                "can_pay": False
+            }
 
         # Get SePay service
         sepay = get_sepay_service()
@@ -1669,9 +1688,10 @@ def generate_payment_qr(request, order_code: str):
             "account_name": qr_data['account_name'],
             "bank_code": qr_data['bank_code'],
             "content": content,
-            "session_id": qr_data.get('session_id', '')
+            "session_id": qr_data.get('session_id', ''),
+            "can_pay": True
         }
     except Order.DoesNotExist:
-        return {"success": False, "error": "Order not found"}
+        return {"success": False, "error": "Order not found", "can_pay": False}
     except SepayAPIError as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "can_pay": False}
