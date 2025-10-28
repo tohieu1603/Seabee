@@ -35,7 +35,7 @@ db.sqlite3-journal
 /media/
 
 # Local overrides
-config/settings/base.py
+
 
 # Environment
 .env
