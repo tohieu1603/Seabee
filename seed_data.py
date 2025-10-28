@@ -27,14 +27,14 @@ print("-"*70)
 
 users_config = [
     # ADMIN / MANAGER
-    {'email': 'admin@seafood.com', 'password': 'admin123', 'user_type': 'admin', 
+    {'email': 'hieuttph47639@fpt.edu.vn', 'password': 'admin123', 'user_type': 'admin',
      'first_name': 'Quản Trị', 'last_name': 'Viên', 'phone': '0901234567', 'role': '👑 Super Admin'},
-    
+
     {'email': 'manager@seafood.com', 'password': 'manager123', 'user_type': 'manager',
      'first_name': 'Nguyễn', 'last_name': 'Quản Lý', 'phone': '0901234568', 'role': '💼 Quản lý'},
 
     # SALE
-    {'email': 'sale1@seafood.com', 'password': 'sale123', 'user_type': 'staff',
+    {'email': 'tthieu160304@gmail.com', 'password': 'sale123', 'user_type': 'staff',
      'first_name': 'Trần', 'last_name': 'Bán Hàng', 'phone': '0902345678', 'role': '💼 Sale 1'},
     
     {'email': 'sale2@seafood.com', 'password': 'sale123', 'user_type': 'staff',

@@ -57,6 +57,7 @@ class SeafoodBase(BaseModel):
     origin: Optional[str] = ""
     image_url: Optional[str] = ""
     tags: List[str] = []
+    weight_range_options: List[str] = Field(default=[], description="Các khoảng cân khách chọn (VD: ['0.5-1kg', '1-2kg'])")
     status: str = "active"
 
 
@@ -75,6 +76,7 @@ class SeafoodUpdate(BaseModel):
     origin: Optional[str] = None
     image_url: Optional[str] = None
     tags: Optional[List[str]] = None
+    weight_range_options: Optional[List[str]] = None
     status: Optional[str] = None
 
 
@@ -170,7 +172,8 @@ class OrderItemBase(BaseModel):
     seafood_id: UUID
     import_batch_id: Optional[UUID] = None
     quantity: Optional[Decimal] = Field(default=None, decimal_places=2, description="Số lượng (con/thùng)")
-    weight: Decimal = Field(decimal_places=2)
+    estimated_weight_range: Optional[str] = Field(default=None, description="Khoảng cân ước tính (VD: '2-3.5kg')")
+    weight: Optional[Decimal] = Field(default=None, decimal_places=2, description="Cân nặng thực tế (kg) - NULL khi chưa cân")
     unit_price: Decimal = Field(decimal_places=0)
     notes: Optional[str] = ""
 
@@ -184,6 +187,8 @@ class OrderItemRead(OrderItemBase):
     quantity: Optional[Decimal] = None
     subtotal: Decimal
     estimated_weight: Optional[Decimal] = None
+    estimated_weight_range: Optional[str] = None
+    weight: Optional[Decimal] = None
     weight_image_url: Optional[str] = ""
     seafood: SeafoodRead
 

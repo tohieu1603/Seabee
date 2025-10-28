@@ -144,3 +144,43 @@ class AttendanceCalendar(BaseModel):
     working_hours: float
     has_orders: bool = False
     orders_count: int = 0
+
+
+# ============================================
+# TRANSACTION SCHEMAS
+# ============================================
+
+class TransactionBase(BaseModel):
+    """Base transaction schema"""
+    transaction_type: str = Field(..., pattern="^(income|expense)$")
+    category: str
+    amount: float = Field(..., gt=0)
+    date: datetime
+    description: str
+    order_id: Optional[UUID] = None
+
+
+class TransactionCreate(TransactionBase):
+    """Schema for creating transaction"""
+    pass
+
+
+class TransactionUpdate(BaseModel):
+    """Schema for updating transaction"""
+    transaction_type: Optional[str] = Field(None, pattern="^(income|expense)$")
+    category: Optional[str] = None
+    amount: Optional[float] = Field(None, gt=0)
+    date: Optional[datetime] = None
+    description: Optional[str] = None
+    order_id: Optional[UUID] = None
+
+
+class TransactionRead(TransactionBase):
+    """Schema for reading transaction"""
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+    created_by_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True

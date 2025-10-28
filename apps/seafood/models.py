@@ -110,6 +110,13 @@ class Seafood(BaseModel):
     # Tags
     tags = models.JSONField(default=list, blank=True, help_text="['tươi sống', 'đông lạnh', 'cao cấp']")
 
+    # Weight Range Options - Khoảng cân ước tính cho khách chọn
+    weight_range_options = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Các khoảng cân khách có thể chọn. VD: ['0.5-1kg', '1-2kg', '2-3.5kg']"
+    )
+
     class Meta:
         db_table = 'seafood'
         verbose_name = 'Sản phẩm'
@@ -393,7 +400,14 @@ class OrderItem(BaseModel):
         help_text="Số lượng (con/thùng). VD: 10 con ốc, 2 thùng tôm"
     )
 
-    # Cân nặng ban đầu (ước tính)
+    # Khoảng cân ước tính (Customer chọn khi đặt hàng)
+    estimated_weight_range = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Khoảng cân ước tính customer chọn. VD: '2-3.5kg', '1-2kg'"
+    )
+
+    # Cân nặng ban đầu (ước tính) - DEPRECATED, dùng estimated_weight_range
     estimated_weight = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -402,11 +416,13 @@ class OrderItem(BaseModel):
         help_text="Cân nặng ước tính ban đầu (kg)"
     )
 
-    # Cân nặng thực tế (sau khi cân)
+    # Cân nặng thực tế (sau khi cân) - Admin cập nhật
     weight = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text="Cân nặng thực tế (kg). VD: 0.5, 1.2, 3.5"
+        null=True,
+        blank=True,
+        help_text="Cân nặng thực tế (kg). VD: 0.5, 1.2, 3.5. NULL = chưa cân"
     )
 
     # Giá
@@ -427,8 +443,12 @@ class OrderItem(BaseModel):
         db_table = 'order_item'
 
     def save(self, *args, **kwargs):
-        # Tự động tính subtotal
-        self.subtotal = self.weight * self.unit_price
+        # Tự động tính subtotal - chỉ khi đã có weight thực tế
+        if self.weight:
+            self.subtotal = self.weight * self.unit_price
+        else:
+            # Chưa cân xong, tạm để subtotal = 0
+            self.subtotal = 0
         super().save(*args, **kwargs)
 
     def __str__(self):

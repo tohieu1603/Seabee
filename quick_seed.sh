@@ -7,9 +7,9 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 users = [
-    ('admin@seafood.com', 'admin123', 'admin', 'Quản Trị', 'Viên', '0901234567'),
+    ('hieuttph47639@fpt.edu.vn', 'admin123', 'admin', 'Quản Trị', 'Viên', '0901234567'),
     ('manager@seafood.com', 'manager123', 'manager', 'Nguyễn', 'Quản Lý', '0901234568'),
-    ('sale1@seafood.com', 'sale123', 'staff', 'Trần', 'Bán Hàng', '0902345678'),
+    ('tthieu160304@gmail.com', 'sale123', 'staff', 'Trần', 'Bán Hàng', '0902345678'),
     ('sale2@seafood.com', 'sale123', 'staff', 'Lê', 'Nhân Viên', '0902345679'),
     ('warehouse@seafood.com', 'warehouse123', 'staff', 'Phạm', 'Thủ Kho', '0903456789'),
     ('accountant@seafood.com', 'accountant123', 'staff', 'Hoàng', 'Kế Toán', '0904567890'),
@@ -31,9 +31,9 @@ for email, pwd, utype, fname, lname, phone in users:
 print(f"\n📊 Tổng: {User.objects.count()} users")
 print("\n📋 THÔNG TIN ĐĂNG NHẬP:")
 print("-" * 60)
-print("ADMIN:      admin@seafood.com / admin123")
+print("ADMIN:      hieuttph47639@fpt.edu.vn / admin123")
 print("MANAGER:    manager@seafood.com / manager123")
-print("SALE 1:     sale1@seafood.com / sale123")
+print("SALE 1:     tthieu160304@gmail.com / sale123")
 print("SALE 2:     sale2@seafood.com / sale123")
 print("WAREHOUSE:  warehouse@seafood.com / warehouse123")
 print("ACCOUNTANT: accountant@seafood.com / accountant123")

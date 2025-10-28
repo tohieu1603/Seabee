@@ -6,10 +6,11 @@ from typing import List, Optional
 from uuid import UUID
 from ninja import Router
 
-from .models import User, Attendance
+from .models import User, Attendance, Transaction
 from .schemas import (
     UserCreate, UserUpdate, UserRead, UserLogin, UserLoginResponse,
-    AttendanceCreate, AttendanceUpdate, AttendanceRead, AttendanceCalendar
+    AttendanceCreate, AttendanceUpdate, AttendanceRead, AttendanceCalendar,
+    TransactionCreate, TransactionUpdate, TransactionRead
 )
 from .services import UserService
 from .authentication import JWTAuth
@@ -165,9 +166,9 @@ def get_customer_orders(request, status: Optional[str] = None):
                     'current_price': float(item.seafood.current_price),
                 } if item.seafood else None,
                 'quantity': float(item.quantity) if item.quantity else 0,
-                'weight': float(item.weight),
+                'weight': float(item.weight) if item.weight is not None else None,
                 'unit_price': float(item.unit_price),
-                'subtotal': float(item.subtotal) if hasattr(item, 'subtotal') else float(item.weight * item.unit_price),
+                'subtotal': float(item.subtotal) if hasattr(item, 'subtotal') else (float(item.weight * item.unit_price) if item.weight is not None else 0),
                 'notes': item.notes or '',
             }
             for item in order.items.all()
@@ -250,9 +251,9 @@ def get_customer_order_detail(request, order_id: UUID):
                 'current_price': float(item.seafood.current_price),
             } if item.seafood else None,
             'quantity': float(item.quantity) if item.quantity else 0,
-            'weight': float(item.weight),
+            'weight': float(item.weight) if item.weight is not None else None,
             'unit_price': float(item.unit_price),
-            'subtotal': float(item.subtotal) if hasattr(item, 'subtotal') else float(item.weight * item.unit_price),
+            'subtotal': float(item.subtotal) if hasattr(item, 'subtotal') else (float(item.weight * item.unit_price) if item.weight is not None else 0),
             'notes': item.notes or '',
             'weight_image_url': item.weight_image_url or '',
         }
@@ -608,10 +609,11 @@ def get_all_staff_kpi_summary(request):
     from django.utils import timezone
     from datetime import timedelta
 
-    # Get all users who have created orders (staff members)
-    # Use Order.created_by to find users who created orders
-    user_ids = Order.objects.values_list('created_by_id', flat=True).distinct()
-    users = User.objects.filter(id__in=user_ids)
+    # Get all staff members (exclude customers)
+    # Filter by user_type to only get admin, manager, accountant, staff
+    users = User.objects.filter(
+        user_type__in=['admin', 'manager', 'accountant', 'staff']
+    ).filter(is_active=True)
 
     today = timezone.now().date()
     week_start = today - timedelta(days=today.weekday())
@@ -660,6 +662,115 @@ def get_all_staff_kpi_summary(request):
     result.sort(key=lambda x: x['month_revenue'], reverse=True)
 
     return result
+
+
+@router.get("/staff/{user_id}/kpi-detail", auth=jwt_auth)
+def get_staff_kpi_detail(request, user_id: UUID):
+    """Get detailed KPI for a specific staff member"""
+    from django.db.models import Sum, Count
+    from apps.seafood.models import Order
+    from django.utils import timezone
+    from datetime import timedelta
+    from api.exceptions import ResourceNotFound
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        raise ResourceNotFound("User not found")
+
+    today = timezone.now().date()
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+
+    base_query = Order.objects.filter(created_by=user)
+
+    # Today stats
+    today_stats = base_query.filter(created_at__date=today).aggregate(
+        revenue=Sum('total_amount'),
+        paid=Sum('paid_amount')
+    )
+
+    # Week stats
+    week_stats = base_query.filter(created_at__date__gte=week_start).aggregate(
+        revenue=Sum('total_amount')
+    )
+
+    # Month stats
+    month_stats = base_query.filter(created_at__date__gte=month_start).aggregate(
+        revenue=Sum('total_amount'),
+        total_orders=Count('id')
+    )
+
+    # Order status breakdown (for the month)
+    completed_orders = base_query.filter(
+        created_at__date__gte=month_start,
+        status='completed'
+    ).count()
+
+    cancelled_orders = base_query.filter(
+        created_at__date__gte=month_start,
+        status='cancelled'
+    ).count()
+
+    # Calculate service efficiency
+    total_orders = month_stats['total_orders'] or 0
+    service_efficiency = (completed_orders / total_orders * 100) if total_orders > 0 else 0
+
+    return {
+        "user_id": str(user.id),
+        "user_email": user.email,
+        "user_name": f"{user.first_name} {user.last_name}".strip() or user.email,
+        "user_type": user.user_type,
+        "today_revenue": float(today_stats['revenue'] or 0),
+        "today_paid": float(today_stats['paid'] or 0),
+        "week_revenue": float(week_stats['revenue'] or 0),
+        "month_revenue": float(month_stats['revenue'] or 0),
+        "service_efficiency": float(service_efficiency),
+        "total_orders": total_orders,
+        "completed_orders": completed_orders,
+        "cancelled_orders": cancelled_orders,
+    }
+
+
+@router.get("/staff/{user_id}/attendance", auth=jwt_auth)
+def get_staff_attendance(request, user_id: UUID, month: Optional[str] = None):
+    """Get attendance records for a specific staff member for a given month"""
+    from datetime import datetime
+    from api.exceptions import ResourceNotFound
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        raise ResourceNotFound("User not found")
+
+    query = Attendance.objects.filter(user=user)
+
+    # If month is provided (format: YYYY-MM), filter by that month
+    if month:
+        try:
+            year, month_num = map(int, month.split('-'))
+            # Get first and last day of the month
+            from calendar import monthrange
+            _, last_day = monthrange(year, month_num)
+            start_date = datetime(year, month_num, 1).date()
+            end_date = datetime(year, month_num, last_day).date()
+            query = query.filter(date__gte=start_date, date__lte=end_date)
+        except (ValueError, IndexError):
+            pass  # Invalid month format, return all records
+
+    records = query.order_by('-date')
+
+    return [
+        {
+            "id": str(record.id),
+            "date": record.date.isoformat(),
+            "attendance_type": record.attendance_type,
+            "check_in_time": record.check_in_time.isoformat() if record.check_in_time else None,
+            "check_out_time": record.check_out_time.isoformat() if record.check_out_time else None,
+            "notes": record.notes or ""
+        }
+        for record in records
+    ]
 
 
 # ============================================
@@ -822,13 +933,22 @@ def get_attendance_calendar(
     while current_date <= last_day:
         attendance = attendance_dict.get(current_date)
 
+        # Calculate working hours from check in/out times
+        working_hours = 0
+        if attendance and attendance.check_in_time and attendance.check_out_time:
+            from datetime import datetime as dt
+            check_in = dt.combine(current_date, attendance.check_in_time)
+            check_out = dt.combine(current_date, attendance.check_out_time)
+            hours_delta = (check_out - check_in).total_seconds() / 3600
+            working_hours = round(hours_delta, 2)
+
         if attendance:
             result.append({
                 "date": current_date.isoformat(),
                 "attendance_type": attendance.attendance_type,
                 "check_in_time": attendance.check_in_time.isoformat() if attendance.check_in_time else None,
                 "check_out_time": attendance.check_out_time.isoformat() if attendance.check_out_time else None,
-                "working_hours": attendance.working_hours,
+                "working_hours": working_hours,
                 "has_orders": current_date in orders_by_date,
                 "orders_count": orders_by_date.get(current_date, 0)
             })
@@ -945,6 +1065,15 @@ def get_staff_monthly_details(request, user_id: UUID, months: int = 12):
                 total_paid=Sum('paid_amount')
             )
 
+            # Calculate working hours from check in/out times
+            working_hours = 0
+            if attendance and attendance.check_in_time and attendance.check_out_time:
+                from datetime import datetime, timedelta
+                check_in = datetime.combine(current_day, attendance.check_in_time)
+                check_out = datetime.combine(current_day, attendance.check_out_time)
+                hours_delta = (check_out - check_in).total_seconds() / 3600
+                working_hours = round(hours_delta, 2)
+
             days_data.append({
                 "date": current_day.isoformat(),
                 "total_orders": day_orders.count(),
@@ -955,7 +1084,7 @@ def get_staff_monthly_details(request, user_id: UUID, months: int = 12):
                 "attendance_type": attendance.attendance_type if attendance else "off",
                 "check_in_time": attendance.check_in_time.isoformat() if attendance and attendance.check_in_time else None,
                 "check_out_time": attendance.check_out_time.isoformat() if attendance and attendance.check_out_time else None,
-                "working_hours": attendance.working_hours if attendance else 0
+                "working_hours": working_hours
             })
 
             current_day += timedelta(days=1)
@@ -994,3 +1123,196 @@ def get_staff_monthly_details(request, user_id: UUID, months: int = 12):
             break
 
     return result
+
+
+# ============================================
+# TRANSACTION ENDPOINTS
+# ============================================
+
+@router.get("/transactions", response=List[TransactionRead], auth=jwt_auth)
+def list_transactions(
+    request,
+    transaction_type: Optional[str] = None,
+    category: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """List all transactions with optional filters"""
+    from datetime import datetime
+
+    query = Transaction.objects.all()
+
+    # Apply filters
+    if transaction_type:
+        query = query.filter(transaction_type=transaction_type)
+
+    if category:
+        query = query.filter(category=category)
+
+    if date_from:
+        try:
+            from_date = datetime.fromisoformat(date_from).date()
+            query = query.filter(date__gte=from_date)
+        except ValueError:
+            pass
+
+    if date_to:
+        try:
+            to_date = datetime.fromisoformat(date_to).date()
+            query = query.filter(date__lte=to_date)
+        except ValueError:
+            pass
+
+    # Order by date descending
+    query = query.order_by('-date', '-created_at')
+
+    # Apply pagination
+    transactions = query[offset:offset + limit]
+
+    return list(transactions)
+
+
+@router.get("/transactions/{transaction_id}", response=TransactionRead, auth=jwt_auth)
+def get_transaction(request, transaction_id: UUID):
+    """Get a specific transaction by ID"""
+    from api.exceptions import ResourceNotFound
+
+    try:
+        transaction = Transaction.objects.get(id=transaction_id)
+        return transaction
+    except Transaction.DoesNotExist:
+        raise ResourceNotFound("Transaction not found")
+
+
+@router.post("/transactions", response=TransactionRead, auth=jwt_auth)
+def create_transaction(request, payload: TransactionCreate):
+    """Create a new transaction"""
+    transaction = Transaction.objects.create(
+        transaction_type=payload.transaction_type,
+        category=payload.category,
+        amount=payload.amount,
+        date=payload.date,
+        description=payload.description,
+        order_id=payload.order_id,
+        created_by=request.auth
+    )
+    return transaction
+
+
+@router.put("/transactions/{transaction_id}", response=TransactionRead, auth=jwt_auth)
+def update_transaction(request, transaction_id: UUID, payload: TransactionUpdate):
+    """Update an existing transaction"""
+    from api.exceptions import ResourceNotFound
+
+    try:
+        transaction = Transaction.objects.get(id=transaction_id)
+    except Transaction.DoesNotExist:
+        raise ResourceNotFound("Transaction not found")
+
+    # Update fields if provided
+    if payload.transaction_type is not None:
+        transaction.transaction_type = payload.transaction_type
+    if payload.category is not None:
+        transaction.category = payload.category
+    if payload.amount is not None:
+        transaction.amount = payload.amount
+    if payload.date is not None:
+        transaction.date = payload.date
+    if payload.description is not None:
+        transaction.description = payload.description
+    if payload.order_id is not None:
+        transaction.order_id = payload.order_id
+
+    transaction.save()
+    return transaction
+
+
+@router.delete("/transactions/{transaction_id}", response=MessageResponse, auth=jwt_auth)
+def delete_transaction(request, transaction_id: UUID):
+    """Delete a transaction"""
+    from api.exceptions import ResourceNotFound
+
+    try:
+        transaction = Transaction.objects.get(id=transaction_id)
+        transaction.delete()
+        return {"message": "Transaction deleted successfully"}
+    except Transaction.DoesNotExist:
+        raise ResourceNotFound("Transaction not found")
+
+
+@router.get("/transactions/summary/stats", auth=jwt_auth)
+def get_transaction_summary(request, date_from: Optional[str] = None, date_to: Optional[str] = None):
+    """Get transaction summary statistics"""
+    from django.db.models import Sum, Count
+    from datetime import datetime, timedelta
+    from django.utils import timezone
+
+    # Default to current month if no dates provided
+    if not date_from:
+        now = timezone.now()
+        date_from = now.replace(day=1).date().isoformat()
+    if not date_to:
+        date_to = timezone.now().date().isoformat()
+
+    try:
+        from_date = datetime.fromisoformat(date_from).date()
+        to_date = datetime.fromisoformat(date_to).date()
+    except ValueError:
+        from api.exceptions import BadRequest
+        raise BadRequest("Invalid date format. Use ISO format (YYYY-MM-DD)")
+
+    # Query transactions
+    transactions = Transaction.objects.filter(
+        date__gte=from_date,
+        date__lte=to_date
+    )
+
+    # Calculate totals
+    income_stats = transactions.filter(transaction_type='income').aggregate(
+        total=Sum('amount'),
+        count=Count('id')
+    )
+
+    expense_stats = transactions.filter(transaction_type='expense').aggregate(
+        total=Sum('amount'),
+        count=Count('id')
+    )
+
+    income_total = float(income_stats['total'] or 0)
+    expense_total = float(expense_stats['total'] or 0)
+    profit = income_total - expense_total
+
+    # Get category breakdown
+    income_by_category = list(
+        transactions.filter(transaction_type='income')
+        .values('category')
+        .annotate(total=Sum('amount'), count=Count('id'))
+        .order_by('-total')
+    )
+
+    expense_by_category = list(
+        transactions.filter(transaction_type='expense')
+        .values('category')
+        .annotate(total=Sum('amount'), count=Count('id'))
+        .order_by('-total')
+    )
+
+    return {
+        "date_from": from_date.isoformat(),
+        "date_to": to_date.isoformat(),
+        "income_total": income_total,
+        "income_count": income_stats['count'] or 0,
+        "expense_total": expense_total,
+        "expense_count": expense_stats['count'] or 0,
+        "profit": profit,
+        "income_by_category": [
+            {"category": item['category'], "total": float(item['total']), "count": item['count']}
+            for item in income_by_category
+        ],
+        "expense_by_category": [
+            {"category": item['category'], "total": float(item['total']), "count": item['count']}
+            for item in expense_by_category
+        ]
+    }

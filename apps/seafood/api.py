@@ -30,6 +30,117 @@ router = Router(tags=["Seafood"], auth=None)  # No auth required for seafood API
 
 
 # ============================================
+# EMAIL NOTIFICATION HELPER
+# ============================================
+
+def send_new_order_notification(order):
+    """
+    Gửi email thông báo cho tất cả staff/sales khi có đơn hàng mới
+    """
+    from django.core.mail import send_mail
+    from django.conf import settings
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+
+    # Lấy tất cả user là staff/sales (không phải customer)
+    staff_users = User.objects.filter(
+        user_type__in=['staff', 'admin', 'manager']
+    ).exclude(email='').values_list('email', flat=True)
+
+    if not staff_users:
+        return  # Không có staff nào để gửi email
+
+    # Tính tổng số sản phẩm
+    total_items = order.items.count()
+
+    # Tạo nội dung email
+    subject = f'[Đơn hàng mới] {order.order_code} - {order.customer_name or order.customer_phone}'
+
+    message = f"""
+Đơn hàng mới vừa được tạo!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THÔNG TIN ĐỠN HÀNG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mã đơn hàng: {order.order_code}
+Khách hàng: {order.customer_name or 'Chưa cập nhật'}
+Số điện thoại: {order.customer_phone}
+Địa chỉ: {order.customer_address or 'Chưa cập nhật'}
+
+Số sản phẩm: {total_items}
+Tổng tiền: {order.total_amount:,.0f}đ
+Phương thức thanh toán: {get_payment_method_label(order.payment_method)}
+
+Trạng thái: {get_order_status_label(order.status)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SẢN PHẨM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{get_order_items_text(order)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Vui lòng xử lý đơn hàng này!
+
+Trân trọng,
+Hệ thống Hải sản
+"""
+
+    # Gửi email cho tất cả staff
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=list(staff_users),
+            fail_silently=False,
+        )
+    except Exception as e:
+        # Re-raise để log ở nơi gọi
+        raise e
+
+
+def get_payment_method_label(method):
+    """Lấy label tiếng Việt cho payment method"""
+    labels = {
+        'cash': 'Tiền mặt',
+        'bank_transfer': 'Chuyển khoản',
+        'cod': 'Tiền khi nhận hàng',
+        'momo': 'MoMo',
+    }
+    return labels.get(method, method)
+
+
+def get_order_status_label(status):
+    """Lấy label tiếng Việt cho order status"""
+    labels = {
+        'pending': 'Chờ xử lý',
+        'processing': 'Đang xử lý',
+        'weighed': 'Đã cân xong',
+        'shipped': 'Đã gửi vận chuyển',
+        'completed': 'Hoàn thành',
+        'cancelled': 'Đã hủy',
+    }
+    return labels.get(status, status)
+
+
+def get_order_items_text(order):
+    """Tạo text danh sách sản phẩm trong đơn hàng"""
+    items_text = []
+    for idx, item in enumerate(order.items.all(), 1):
+        items_text.append(
+            f"{idx}. {item.seafood.name}\n"
+            f"   - Khối lượng: {item.weight} kg\n"
+            f"   - Đơn giá: {item.unit_price:,.0f}đ/kg\n"
+            f"   - Thành tiền: {item.subtotal:,.0f}đ"
+        )
+    return '\n\n'.join(items_text)
+
+
+# ============================================
 # CATEGORY ENDPOINTS
 # ============================================
 
@@ -675,9 +786,9 @@ def get_order(request, order_id: UUID):
             'id': str(item.id),
             'seafood_id': str(item.seafood_id),
             'quantity': float(item.quantity) if item.quantity else None,
-            'weight': float(item.weight),
+            'weight': float(item.weight) if item.weight is not None else None,
             'unit_price': float(item.unit_price),
-            'subtotal': float(item.subtotal) if hasattr(item, 'subtotal') else float(item.weight * item.unit_price),
+            'subtotal': float(item.subtotal) if hasattr(item, 'subtotal') else (float(item.weight * item.unit_price) if item.weight is not None else 0),
             'estimated_weight': float(item.estimated_weight) if item.estimated_weight else None,
             'weight_image_url': item.weight_image_url or '',
             'notes': item.notes or '',
@@ -753,8 +864,24 @@ def create_order(request, payload: OrderCreate):
     # Tính tổng tiền
     subtotal = Decimal('0')
     for item in items_data:
-        item_total = Decimal(str(item['weight'])) * Decimal(str(item['unit_price']))
-        subtotal += item_total
+        weight = item.get('weight')
+        if weight is not None and weight > 0:
+            # Đã có weight thực tế (đã cân) - tính chính xác
+            item_total = Decimal(str(weight)) * Decimal(str(item['unit_price']))
+            subtotal += item_total
+        else:
+            # Chưa cân - tính ước tính dựa trên estimated_weight_range
+            estimated_range = item.get('estimated_weight_range', '')
+            if estimated_range:
+                # Parse range like "2.5-5kg" -> lấy giá trị trung bình
+                import re
+                match = re.match(r'(\d+\.?\d*)\s*-\s*(\d+\.?\d*)(?:kg)?', estimated_range)
+                if match:
+                    min_weight = Decimal(match.group(1))
+                    max_weight = Decimal(match.group(2))
+                    avg_weight = (min_weight + max_weight) / 2
+                    item_total = avg_weight * Decimal(str(item['unit_price']))
+                    subtotal += item_total
 
     data['subtotal'] = subtotal
     data['total_amount'] = subtotal - Decimal(str(data.get('discount_amount', 0)))
@@ -808,44 +935,59 @@ def create_order(request, payload: OrderCreate):
     # Tạo order items và cập nhật stock
     for item_data in items_data:
         seafood = Seafood.objects.get(id=item_data['seafood_id'])
-        weight = Decimal(str(item_data['weight']))
+        weight = item_data.get('weight')
+
+        # Convert weight to Decimal if not None
+        weight_decimal = Decimal(str(weight)) if weight is not None else None
 
         # Tạo order item
         order_item = OrderItem.objects.create(
             order=order,
             seafood=seafood,
             import_batch_id=item_data.get('import_batch_id'),
-            weight=weight,
+            estimated_weight_range=item_data.get('estimated_weight_range', ''),
+            weight=weight_decimal,
             unit_price=item_data['unit_price'],
-            subtotal=weight * Decimal(str(item_data['unit_price'])),
+            quantity=item_data.get('quantity'),
             notes=item_data.get('notes', '')
         )
 
-        # Cập nhật stock sản phẩm
-        seafood.stock_quantity = Decimal(str(seafood.stock_quantity)) - weight
-        if seafood.stock_quantity <= 0:
-            seafood.status = 'out_of_stock'
-        seafood.save()
+        # Chỉ cập nhật stock khi đã có weight thực tế (đã cân xong)
+        if weight_decimal is not None and weight_decimal > 0:
+            # Cập nhật stock sản phẩm
+            seafood.stock_quantity = Decimal(str(seafood.stock_quantity)) - weight_decimal
+            if seafood.stock_quantity <= 0:
+                seafood.status = 'out_of_stock'
+            seafood.save()
 
-        # Cập nhật batch remaining weight
-        if item_data.get('import_batch_id'):
-            batch = ImportBatch.objects.get(id=item_data['import_batch_id'])
-            batch.remaining_weight = Decimal(str(batch.remaining_weight)) - weight
-            if batch.remaining_weight <= 0:
-                batch.status = 'sold_out'
-            batch.save()
+            # Cập nhật batch remaining weight
+            if item_data.get('import_batch_id'):
+                batch = ImportBatch.objects.get(id=item_data['import_batch_id'])
+                batch.remaining_weight = Decimal(str(batch.remaining_weight)) - weight_decimal
+                if batch.remaining_weight <= 0:
+                    batch.status = 'sold_out'
+                batch.save()
 
-        # Tạo inventory log
-        InventoryLog.objects.create(
-            seafood=seafood,
-            import_batch_id=item_data.get('import_batch_id'),
-            order_item=order_item,
-            type='sale',
-            weight_change=-weight,
-            stock_after=seafood.stock_quantity,
-            notes=f'Bán cho {order.customer_phone}',
-            created_by=data['created_by']
-        )
+            # Tạo inventory log
+            InventoryLog.objects.create(
+                seafood=seafood,
+                import_batch_id=item_data.get('import_batch_id'),
+                order_item=order_item,
+                type='sale',
+                weight_change=-weight_decimal,
+                stock_after=seafood.stock_quantity,
+                notes=f'Bán cho {order.customer_phone}',
+                created_by=data['created_by']
+            )
+
+    # Gửi email thông báo cho tất cả staff/sales khi có đơn hàng mới
+    try:
+        send_new_order_notification(order)
+    except Exception as e:
+        # Log error nhưng không làm gián đoạn việc tạo đơn
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to send order notification email: {str(e)}")
 
     return get_order(request, order.id)
 
@@ -1045,6 +1187,11 @@ def mark_order_weighed(request, order_id: UUID, payload: MarkWeighedSchema = Non
 def mark_order_shipped(request, order_id: UUID, payload: MarkShippedSchema = None):
     """Đánh dấu đơn hàng đã gửi vận chuyển"""
     order = get_object_or_404(Order, id=order_id)
+
+    # VALIDATION: Nếu là chuyển khoản, phải thanh toán trước khi gửi vận chuyển
+    if order.payment_method == 'bank_transfer' and order.payment_status != 'paid':
+        from api.exceptions import BadRequest
+        raise BadRequest("Đơn hàng chuyển khoản phải được thanh toán trước khi gửi vận chuyển")
 
     order.status = 'shipped'
     order.shipped_at = timezone.now()

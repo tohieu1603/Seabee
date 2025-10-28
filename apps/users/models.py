@@ -268,23 +268,98 @@ class Attendance(models.Model):
     def __str__(self):
         return f"{self.user.full_name} - {self.date} ({self.get_attendance_type_display()})"
 
-    @property
-    def working_hours(self):
-        """Calculate working hours"""
-        if self.attendance_type == 'off' or not self.check_in_time or not self.check_out_time:
-            return 0
 
-        from datetime import datetime, timedelta
-        check_in = datetime.combine(self.date, self.check_in_time)
-        check_out = datetime.combine(self.date, self.check_out_time)
+class Transaction(models.Model):
+    """
+    Financial Transaction Model
+    Tracks income and expenses
+    """
+    TRANSACTION_TYPE_CHOICES = [
+        ('income', 'Thu'),  # Income
+        ('expense', 'Chi'),  # Expense
+    ]
 
-        if check_out < check_in:
-            check_out += timedelta(days=1)
+    CATEGORY_CHOICES = [
+        # Income categories
+        ('sales', 'Doanh thu bán hàng'),
+        ('other_income', 'Thu nhập khác'),
 
-        delta = check_out - check_in
-        hours = delta.total_seconds() / 3600
+        # Expense categories
+        ('purchase', 'Mua hàng'),
+        ('salary', 'Lương nhân viên'),
+        ('rent', 'Thuê mặt bằng'),
+        ('utilities', 'Tiền điện nước'),
+        ('marketing', 'Marketing'),
+        ('shipping', 'Vận chuyển'),
+        ('maintenance', 'Bảo trì'),
+        ('other_expense', 'Chi phí khác'),
+    ]
 
-        if self.attendance_type == 'half':
-            return min(hours, 4)
-        else:
-            return hours
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    transaction_type = models.CharField(
+        max_length=10,
+        choices=TRANSACTION_TYPE_CHOICES,
+        db_index=True,
+        help_text="Loại giao dịch: Thu/Chi"
+    )
+    category = models.CharField(
+        max_length=50,
+        choices=CATEGORY_CHOICES,
+        help_text="Danh mục"
+    )
+    amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=0,
+        help_text="Số tiền (VNĐ)"
+    )
+    date = models.DateField(
+        db_index=True,
+        help_text="Ngày giao dịch"
+    )
+    description = models.TextField(
+        help_text="Mô tả chi tiết"
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Ghi chú thêm"
+    )
+
+    # Reference to order if this is from a sale
+    order = models.ForeignKey(
+        'seafood.Order',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='transactions',
+        help_text="Đơn hàng (nếu là doanh thu từ bán hàng)"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_transactions',
+        help_text="Người tạo"
+    )
+
+    class Meta:
+        db_table = 'transactions'
+        verbose_name = 'Giao dịch'
+        verbose_name_plural = 'Giao dịch'
+        ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['transaction_type', 'date']),
+            models.Index(fields=['category']),
+            models.Index(fields=['date']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_transaction_type_display()} - {self.amount:,.0f}đ - {self.date}"
