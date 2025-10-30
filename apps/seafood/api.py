@@ -224,7 +224,12 @@ def import_products_excel(request):
         for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             try:
                 # Expected columns: Mã, Tên, Danh mục, Đơn vị, Giá, Tồn kho, Xuất xứ, Trạng thái
+                # Skip empty rows
+                if not any(row):
+                    continue
+
                 if not row[0] or not row[1]:  # Skip if no code or name
+                    errors.append(f"Row {row_idx}: Thiếu mã hoặc tên sản phẩm")
                     continue
 
                 code = str(row[0]).strip()
@@ -1057,8 +1062,8 @@ def update_order_item(
 
     item = get_object_or_404(OrderItem, id=item_id_uuid, order=order)
 
-    # Lưu trọng lượng cũ để tính chênh lệch stock
-    old_weight = item.weight
+    # Lưu trọng lượng cũ để tính chênh lệch stock (convert None to 0)
+    old_weight = Decimal(str(item.weight)) if item.weight is not None else Decimal('0')
 
     # Cập nhật item
     if weight is not None:
@@ -1068,12 +1073,15 @@ def update_order_item(
     if weight_image_url is not None:
         item.weight_image_url = weight_image_url
 
-    # Tính lại subtotal
-    item.subtotal = item.weight * item.unit_price
+    # Tính lại subtotal (only if weight exists)
+    if item.weight is not None:
+        item.subtotal = item.weight * item.unit_price
+    else:
+        item.subtotal = Decimal('0')
     item.save()
 
     # Cập nhật stock nếu thay đổi trọng lượng
-    if weight is not None:
+    if weight is not None and item.weight is not None:
         weight_diff = item.weight - old_weight
         seafood = item.seafood
         seafood.stock_quantity = Decimal(str(seafood.stock_quantity)) - weight_diff
@@ -1096,8 +1104,21 @@ def update_order_item(
 
     return {
         "success": True,
-        "item": item,
-        "order": order
+        "item": {
+            "id": str(item.id),
+            "weight": float(item.weight) if item.weight else None,
+            "unit_price": float(item.unit_price),
+            "subtotal": float(item.subtotal),
+            "weight_image_url": item.weight_image_url,
+        },
+        "order": {
+            "id": str(order.id),
+            "order_code": order.order_code,
+            "subtotal": float(order.subtotal),
+            "discount_amount": float(order.discount_amount),
+            "total_amount": float(order.total_amount),
+            "paid_amount": float(order.paid_amount),
+        }
     }
 
 

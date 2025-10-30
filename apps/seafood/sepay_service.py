@@ -20,7 +20,7 @@ class SepayService:
     def __init__(self):
         self.base_url = getattr(settings, 'SEPAY_BASE_URL', 'https://api.sepay.vn')
         self.api_key = getattr(settings, 'SEPAY_API_KEY', '')
-        self.account_number = getattr(settings, 'SEPAY_ACCOUNT_NUMBER', '116096779')
+        self.account_number = getattr(settings, 'SEPAY_ACCOUNT_NUMBER', '1160976779')
         self.account_name = getattr(settings, 'SEPAY_ACCOUNT_NAME', 'TO TRONG HIEU')
         self.bank_code = getattr(settings, 'SEPAY_BANK_CODE', 'BIDV')
 

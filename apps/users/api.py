@@ -602,26 +602,50 @@ def get_staff_kpi_summary(request, user_id: UUID = None):
 
 
 @router.get("/staff/all-kpi-summary", auth=jwt_auth)
-def get_all_staff_kpi_summary(request):
-    """Get KPI summary for all staff members - For Admin/Manager/Accountant"""
-    from django.db.models import Sum, Count
+def get_all_staff_kpi_summary(request, year: Optional[int] = None, month: Optional[int] = None):
+    """Get KPI summary for all staff members - For Admin/Manager/Accountant
+
+    Query parameters:
+    - year: Filter by year (default: current year)
+    - month: Filter by month 1-12 (default: current month)
+    """
+    from django.db.models import Sum, Count, Q
     from apps.seafood.models import Order
     from django.utils import timezone
-    from datetime import timedelta
+    from datetime import timedelta, date
+    from calendar import monthrange
 
-    # Get all staff members (exclude customers)
-    # Filter by user_type to only get admin, manager, accountant, staff
-    users = User.objects.filter(
-        user_type__in=['admin', 'manager', 'accountant', 'staff']
+    # Get all staff members (exclude customers only)
+    users = User.objects.exclude(
+        user_type='customer'
     ).filter(is_active=True)
 
     today = timezone.now().date()
+
+    # Use provided year/month or default to current
+    selected_year = year or today.year
+    selected_month = month or today.month
+
+    # Calculate date ranges
     week_start = today - timedelta(days=today.weekday())
-    month_start = today.replace(day=1)
+    month_start = date(selected_year, selected_month, 1)
+    _, last_day = monthrange(selected_year, selected_month)
+    month_end = date(selected_year, selected_month, last_day)
 
     result = []
     for user in users:
-        base_query = Order.objects.filter(created_by=user)
+        # Query orders based on user role
+        # For employees: assigned_employee (warehouse workers)
+        # For sales: sale_user (sales staff)
+        # For creators: created_by (who created the order)
+        base_query = Order.objects.filter(
+            Q(created_by=user) |  # Orders created by user
+            Q(sale_user=user) |   # Orders assigned to sales
+            Q(assigned_employee=user) |  # Orders assigned to warehouse
+            Q(weighed_by=user) |  # Orders weighed by user
+            Q(shipped_by=user) |  # Orders shipped by user
+            Q(delivered_by=user)  # Orders delivered by user
+        ).distinct()
 
         # Today stats
         today_stats = base_query.filter(created_at__date=today).aggregate(
@@ -634,15 +658,22 @@ def get_all_staff_kpi_summary(request):
             revenue=Sum('total_amount')
         )
 
-        # Month stats
-        month_stats = base_query.filter(created_at__date__gte=month_start).aggregate(
+        # Month stats (for selected month)
+        month_stats = base_query.filter(
+            created_at__date__gte=month_start,
+            created_at__date__lte=month_end
+        ).aggregate(
             revenue=Sum('total_amount')
         )
 
-        # Calculate service efficiency
-        total_orders = base_query.filter(created_at__date__gte=month_start).count()
+        # Calculate service efficiency for selected month
+        total_orders = base_query.filter(
+            created_at__date__gte=month_start,
+            created_at__date__lte=month_end
+        ).count()
         completed_orders = base_query.filter(
             created_at__date__gte=month_start,
+            created_at__date__lte=month_end,
             status='completed'
         ).count()
         service_efficiency = (completed_orders / total_orders * 100) if total_orders > 0 else 0
@@ -655,7 +686,9 @@ def get_all_staff_kpi_summary(request):
             "today_paid": float(today_stats['paid'] or 0),
             "week_revenue": float(week_stats['revenue'] or 0),
             "month_revenue": float(month_stats['revenue'] or 0),
-            "service_efficiency": float(service_efficiency)
+            "service_efficiency": float(service_efficiency),
+            "selected_year": selected_year,
+            "selected_month": selected_month,
         })
 
     # Sort by month revenue descending
@@ -667,7 +700,7 @@ def get_all_staff_kpi_summary(request):
 @router.get("/staff/{user_id}/kpi-detail", auth=jwt_auth)
 def get_staff_kpi_detail(request, user_id: UUID):
     """Get detailed KPI for a specific staff member"""
-    from django.db.models import Sum, Count
+    from django.db.models import Sum, Count, Q
     from apps.seafood.models import Order
     from django.utils import timezone
     from datetime import timedelta
@@ -682,7 +715,15 @@ def get_staff_kpi_detail(request, user_id: UUID):
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
 
-    base_query = Order.objects.filter(created_by=user)
+    # Query orders based on user involvement
+    base_query = Order.objects.filter(
+        Q(created_by=user) |
+        Q(sale_user=user) |
+        Q(assigned_employee=user) |
+        Q(weighed_by=user) |
+        Q(shipped_by=user) |
+        Q(delivered_by=user)
+    ).distinct()
 
     # Today stats
     today_stats = base_query.filter(created_at__date=today).aggregate(
@@ -967,6 +1008,248 @@ def get_attendance_calendar(
         current_date += timedelta(days=1)
 
     return result
+
+
+@router.get("/attendance/calendar/{user_id}/export-excel")
+def export_attendance_calendar_excel(
+    request,
+    user_id: UUID,
+    year: Optional[int] = None,
+    month: Optional[int] = None
+):
+    """Export attendance calendar to Excel file"""
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from datetime import datetime, timedelta
+    from calendar import monthrange
+    from apps.seafood.models import Order
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    # Default to current month if not provided
+    now = timezone.now()
+    year = year or now.year
+    month = month or now.month
+
+    # Get user
+    try:
+        user = User.objects.get(id=user_id)
+        account_start_date = user.date_joined.date()
+    except User.DoesNotExist:
+        from api.exceptions import ResourceNotFound
+        raise ResourceNotFound("Không tìm thấy người dùng")
+
+    # Get first and last day of the month
+    first_day = datetime(year, month, 1).date()
+    last_day = datetime(year, month, monthrange(year, month)[1]).date()
+
+    # Get attendance data (reuse logic from calendar endpoint)
+    if first_day < account_start_date:
+        first_day = account_start_date
+
+    try:
+        attendances = Attendance.objects.filter(
+            user_id=user_id,
+            date__gte=first_day,
+            date__lte=last_day
+        )
+        attendance_dict = {att.date: att for att in attendances}
+    except:
+        attendance_dict = {}
+
+    # Get orders
+    orders_by_date = {}
+    orders = Order.objects.filter(
+        created_by_id=user_id,
+        created_at__date__gte=first_day,
+        created_at__date__lte=last_day
+    )
+    for order in orders:
+        order_date = order.created_at.date()
+        if order_date not in orders_by_date:
+            orders_by_date[order_date] = 0
+        orders_by_date[order_date] += 1
+
+    # Create Excel workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Chấm công {month}-{year}"
+
+    # Styles
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=12)
+    full_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+    half_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+    off_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # Header info
+    ws.merge_cells('A1:G1')
+    title_cell = ws['A1']
+    title_cell.value = f"BẢNG CHẤM CÔNG THÁNG {month}/{year}"
+    title_cell.font = Font(bold=True, size=14)
+    title_cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    ws.merge_cells('A2:G2')
+    user_cell = ws['A2']
+    user_name = f"{user.first_name} {user.last_name}".strip() or user.email
+    user_cell.value = f"Nhân viên: {user_name} ({user.email})"
+    user_cell.font = Font(size=11)
+    user_cell.alignment = Alignment(horizontal='center')
+
+    # Column headers
+    headers = ['Ngày', 'Thứ', 'Trạng thái', 'Giờ vào', 'Giờ ra', 'Tổng giờ', 'Số đơn']
+    ws.append([])  # Empty row
+    ws.append(headers)
+
+    header_row = ws[4]
+    for cell in header_row:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = border
+
+    # Data rows
+    current_date = first_day
+    stats = {'full': 0, 'half': 0, 'off': 0, 'total_hours': 0, 'total_orders': 0}
+
+    while current_date <= last_day:
+        attendance = attendance_dict.get(current_date)
+
+        # Day of week
+        weekday_names = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật']
+        weekday = weekday_names[current_date.weekday()]
+
+        # Working hours
+        working_hours = 0
+        check_in = None
+        check_out = None
+
+        if attendance and attendance.check_in_time and attendance.check_out_time:
+            from datetime import datetime as dt
+            check_in = attendance.check_in_time.strftime('%H:%M')
+            check_out = attendance.check_out_time.strftime('%H:%M')
+            check_in_dt = dt.combine(current_date, attendance.check_in_time)
+            check_out_dt = dt.combine(current_date, attendance.check_out_time)
+            hours_delta = (check_out_dt - check_in_dt).total_seconds() / 3600
+            working_hours = round(hours_delta, 2)
+
+        # Attendance status
+        if attendance:
+            att_type = attendance.attendance_type
+            if att_type == 'full':
+                att_label = 'Làm cả ngày'
+                stats['full'] += 1
+            elif att_type == 'half':
+                att_label = 'Làm nửa ngày'
+                stats['half'] += 1
+            else:
+                att_label = 'Nghỉ'
+                stats['off'] += 1
+        else:
+            att_type = 'off'
+            att_label = 'Nghỉ'
+            stats['off'] += 1
+
+        orders_count = orders_by_date.get(current_date, 0)
+        stats['total_hours'] += working_hours
+        stats['total_orders'] += orders_count
+
+        row_data = [
+            current_date.strftime('%d/%m/%Y'),
+            weekday,
+            att_label,
+            check_in or '',
+            check_out or '',
+            working_hours if working_hours > 0 else '',
+            orders_count if orders_count > 0 else ''
+        ]
+        ws.append(row_data)
+
+        # Apply styling to data row
+        current_row = ws.max_row
+        for col_idx, cell in enumerate(ws[current_row], start=1):
+            cell.border = border
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+
+            # Apply background color based on attendance type
+            if col_idx == 3:  # Status column
+                if att_type == 'full':
+                    cell.fill = full_fill
+                elif att_type == 'half':
+                    cell.fill = half_fill
+                else:
+                    cell.fill = off_fill
+
+        current_date += timedelta(days=1)
+
+    # Summary row
+    ws.append([])
+    summary_row_idx = ws.max_row + 1
+    ws.append([
+        'TỔNG CỘNG',
+        '',
+        f"Cả ngày: {stats['full']}, Nửa: {stats['half']}, Nghỉ: {stats['off']}",
+        '',
+        '',
+        stats['total_hours'],
+        stats['total_orders']
+    ])
+
+    # Style summary row
+    for cell in ws[summary_row_idx]:
+        cell.font = Font(bold=True)
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    ws.merge_cells(f'A{summary_row_idx}:B{summary_row_idx}')
+    ws.merge_cells(f'C{summary_row_idx}:E{summary_row_idx}')
+
+    # Adjust column widths
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 10
+    ws.column_dimensions['C'].width = 15
+    ws.column_dimensions['D'].width = 10
+    ws.column_dimensions['E'].width = 10
+    ws.column_dimensions['F'].width = 10
+    ws.column_dimensions['G'].width = 10
+
+    # Set row heights
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[4].height = 20
+
+    # Create HTTP response
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    filename = f"cham_cong_{user_name.replace(' ', '_')}_{month}_{year}.xlsx"
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+    wb.save(response)
+    return response
+
+
+@router.get("/my-attendance/export-excel")
+def export_my_attendance_excel(
+    request,
+    year: Optional[int] = None,
+    month: Optional[int] = None
+):
+    """Export current user's attendance calendar to Excel file"""
+    # Get current user from request
+    user = request.user
+    if not user or not user.is_authenticated:
+        from django.http import JsonResponse
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    # Reuse the existing export function
+    return export_attendance_calendar_excel(request, user.id, year, month)
 
 
 @router.get("/staff/monthly-details/{user_id}", auth=None)
